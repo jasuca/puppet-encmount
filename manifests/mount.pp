@@ -8,7 +8,6 @@ define encmount::mount(
   $options='defaults',
   $temp="/dev/shm/${mapper}"
 ) {
-  include cryptsetup
   $devmapper = "/dev/mapper/${mapper}"
 
   file { $temp:
@@ -17,30 +16,29 @@ define encmount::mount(
     owner   => root,
     group   => root,
     mode    => '0400',
-    notify  => Exec['create key'],
+    notify  => Exec["create key $mapper"],
   }
 
-  exec { 'create key':
+  exec { "create key $mapper":
     command     => "/bin/echo -n '${key}' > ${temp}",
     unless      => "/bin/mount | /bin/grep ${mapper}",
     refreshonly => true,
-    notify      => Exec['luksOpen'],
+    notify      => Exec["luksOpen $mapper"],
   }
 
-  exec { 'delete key':
-    command     => "/bin/echo -n > ${temp}",
+  exec { "delete key $mapper":
+    command     => "/usr/bin/shred -u ${temp}",
     refreshonly => true,
   }
 
-  exec { 'luksOpen':
+  exec { "luksOpen $mapper":
     command     => "/sbin/cryptsetup --key-file ${temp} luksOpen ${device} ${mapper}",
     onlyif      => "/usr/bin/test ! -b ${devmapper}",
     creates     => $devmapper,
     path        => ['/sbin', '/bin/'],
     refreshonly => true,
-    subscribe   => Exec['create key'],
-    notify      => [ Exec['delete key'], Mount[$mount] ],
-    require     => Class['cryptsetup'],
+    subscribe   => Exec["create key $mapper"],
+    notify      => [ Exec["delete key $mapper"], Mount[$mount] ],
   }
 
   mount { $mount:
@@ -49,6 +47,6 @@ define encmount::mount(
     device  => $devmapper,
     fstype  => $fstype,
     options => $options,
-    require => Exec['luksOpen'],
+    require => Exec["luksOpen $mapper"],
   }
 }
